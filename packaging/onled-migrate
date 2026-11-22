@@ -1,0 +1,18 @@
+#!/bin/sh
+# Remove apenas arquivos de sistema idênticos aos gerados pelo OnLed 1.0.0.
+matches() {
+    [ -f "$1" ] && [ ! -L "$1" ] &&
+        [ "$(sha256sum -- "$1" | cut -d ' ' -f 1)" = "$2" ]
+}
+if matches /etc/sudoers.d/onled-teclado d0d3e30186dbf3eda38a5512b68a2d18524939a9d69831cb2f5839cf5ab20f60; then
+    rm -f /etc/sudoers.d/onled-teclado
+fi
+if matches /etc/systemd/system/keyboard-led.service ce850ad4d21dbb250f013f2c6ef83da9de290dc3e7c361132193470bd97ec050; then
+    if [ -d /run/systemd/system ]; then
+        systemctl disable --now keyboard-led.service || :
+    fi
+    rm -f /etc/systemd/system/keyboard-led.service
+fi
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || :
+fi

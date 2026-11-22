@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+appdir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if ! command -v gjs >/dev/null; then
+    printf '%s\n' 'Instale GJS e GTK 4 para abrir o OnLed.' >&2
+    exit 1
+fi
+ONLED_APPDIR=$appdir exec gjs -m "$appdir/usr/share/onled/window.js" "$@"

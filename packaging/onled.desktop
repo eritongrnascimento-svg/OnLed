@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=OnLed
+Comment=Controle a iluminação do teclado
+Exec=onled
+Icon=onled
+Terminal=false
+Categories=Settings;HardwareSettings;
+StartupNotify=true
+StartupWMClass=org.onled.Keyboard

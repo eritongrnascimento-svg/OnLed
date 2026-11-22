@@ -1,0 +1,19 @@
+[Unit]
+Description=OnLed — manter iluminação do teclado ligada
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/onled-helper daemon
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

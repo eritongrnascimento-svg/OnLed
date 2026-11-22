@@ -1,0 +1,113 @@
+#!/usr/bin/python3 -I
+# SPDX-License-Identifier: GPL-3.0-only
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+LEDS = Path("/sys/class/leds")
+DEVICES = Path("/sys/devices")
+SYSTEMCTL = "/usr/bin/systemctl"
+SERVICE = "onled.service"
+SAFE_ENV = {"PATH": "/usr/bin:/bin", "LANG": "C"}
+
+
+def supported(name):
+    name = name.lower()
+    return (
+        re.fullmatch(r"input[0-9]+::scrolllock", name)
+        or name.endswith("kbd_backlight")
+        or ("rgb" in name and ("keyboard" in name or "kbd" in name))
+    )
+
+
+def list_leds():
+    result = []
+    if not LEDS.is_dir():
+        return result
+    for entry in sorted(LEDS.iterdir()):
+        if not supported(entry.name):
+            continue
+        try:
+            directory = entry.resolve(strict=True)
+            if not directory.is_relative_to(DEVICES):
+                continue
+            maximum = int((directory / "max_brightness").read_text())
+            value = int((directory / "brightness").read_text())
+            if maximum > 0:
+                result.append((entry.name, directory, value, maximum))
+        except (OSError, ValueError):
+            continue
+    return result
+
+
+def set_leds(target, level):
+    devices = [led for led in list_leds() if target in ("*", led[0])]
+    if not devices:
+        raise ValueError("Nenhum LED de teclado compatível foi encontrado.")
+    changed, failures = [], []
+    for name, directory, previous, maximum in devices:
+        value = maximum if level == "max" else int(level)
+        if not 0 <= value <= maximum:
+            failures.append(f"{name}: valor fora do intervalo 0–{maximum}")
+            continue
+        if previous != value:
+            try:
+                fd = os.open(directory / "brightness", os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+                with os.fdopen(fd, "w", encoding="ascii") as stream:
+                    stream.write(f"{value}\n")
+            except OSError as error:
+                failures.append(f"{name}: {error.strerror}")
+                continue
+        changed.append(name)
+    return {"changed": changed, "errors": failures}
+
+
+def service_active():
+    if not Path("/run/systemd/system").is_dir():
+        return False
+    try:
+        return subprocess.run(
+            [SYSTEMCTL, "is-active", "--quiet", SERVICE],
+            env=SAFE_ENV, capture_output=True, timeout=4,
+        ).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def main(args):
+    if args == ["list"]:
+        print(json.dumps({
+            "devices": [{"name": name, "value": value, "max": maximum}
+                        for name, _, value, maximum in list_leds()],
+            "automatic": service_active(),
+        }))
+        return 0
+    if os.geteuid() != 0:
+        raise ValueError("Use o OnLed numa sessão local ativa com o helper instalado.")
+    if len(args) == 3 and args[0] == "set" and re.fullmatch(r"max|[0-9]{1,9}", args[2]):
+        result = set_leds(args[1], args[2])
+        print(json.dumps(result))
+        return int(not result["changed"])
+    if len(args) == 2 and args[0] == "automatic" and args[1] in ("on", "off"):
+        action = "enable" if args[1] == "on" else "disable"
+        subprocess.run([SYSTEMCTL, action, "--now", SERVICE],
+                       env=SAFE_ENV, check=True, timeout=15)
+        return 0
+    if args == ["daemon"] and "PKEXEC_UID" not in os.environ:
+        while True:
+            if list_leds():
+                set_leds("*", "max")
+            time.sleep(5)
+    raise ValueError("Operação inválida.")
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(str(error), file=sys.stderr)
+        raise SystemExit(1)
